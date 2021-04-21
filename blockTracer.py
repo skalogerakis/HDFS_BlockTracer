@@ -2,37 +2,28 @@ import subprocess
 import sys, getopt
 import re
 
+# Execute in terminal using command
+# python3 blockTracer.py /inputTester/
+
 # Dictionnary to store the total size by ip node
-size_by_ip_dict = {}
+hdfs_stats = {}
 
 
-# Print size in a human readable way
-# def human_readable_size(size):
-#     for unit in ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z']:
-#         if abs(size) < 1024.0:
-#             return "%3.1f%s%s" % (size, unit, ' B')
-#         size /= 1024.0
-#     return "%.1f%s%s" % (size, 'Y', ' B')  # Should never happen
+def result_printer():
+    total_size = 0
 
+    # Find the total size for sanity reasons
+    for total in hdfs_stats.values():
+        total_size += total
 
-# Sum the given block_size to the ip entry in the size_by_ip_dict
-def update_size_by_ip_dict(ip, block_size):
-    if ip not in size_by_ip_dict.keys():
-        size_by_ip_dict[ip] = block_size
-    else:
-        size_by_ip_dict[ip] += block_size
+    print("Total Data Size = ", total_size)
 
+    print("Sorted by value size")
+    sorted_stats = sorted(hdfs_stats.items(), key=lambda item: item[1])
 
-def result_printer(total_size):
-    # print("Total size = ", human_readable_size(total_size))
-    print("Total size = ", total_size)
-
-    print("Data by node")
-    sorted_size_by_ip_list = sorted(size_by_ip_dict.items(), key=lambda x: x[1])
-    # Print the size by node sorted by size
-    for ip, size in sorted_size_by_ip_list:
-        print(ip, ":", size, "(", "%.2f" % (size / total_size * 100), "%)")
-        # print(ip, ":", human_readable_size(size), "(", "%.2f" % (size / total_size * 100), "%)")
+    # Print the sorted list by value size and
+    for ip, size in sorted_stats:
+        print("IP:", ip, "\tSIZE: ", size, "[%.1f" % (size / total_size * 100), "%]")
 
 
 def main(argv):
@@ -42,42 +33,33 @@ def main(argv):
     out = subprocess.Popen(['hdfs', 'fsck', path, '-files', '-blocks', '-locations'], stdout=subprocess.PIPE,
                            stderr=subprocess.STDOUT)
     stdout, stderr = out.communicate()
-    lines = stdout.decode("utf-8").split("\n")
-    # print(lines)
+    fsck_line = stdout.decode("utf-8").split("\n")
 
+    for line in fsck_line:
+        if "DatanodeInfoWithStorage" in line:  # Keep only lines containing DatanodeWithStorage
 
-    # Filter the lines corresponding to a HDFS block information
-    # hdfs_block_lines = [line for line in lines if "DatanodeInfoWithStorage" in line]
+            # Regex to get the length and replication factor of a HDFS block
+            regex_len_rep = r'.* len=(\d*) Live_repl=(\d*).*'
 
-    hdfs_block_lines = []
+            match_object_len_rep = re.match(regex_len_rep, line)
+            # print(match_object_len_rep)
+            block_size = int(match_object_len_rep.group(1))
+            replication_factor = int(match_object_len_rep.group(2))
+            # Regex to get all the ips on which a HDFS block is present
+            regex_ips = r'.*' + '.*DatanodeInfoWithStorage\[([\w.]*)' * replication_factor
+            print(regex_ips)
+            match_object_ips = re.match(regex_ips, line)
+            print(match_object_ips)
+            for i in range(0, replication_factor):
+                ip = match_object_ips.group(i + 1)
 
-    for line in lines:
-        if "DatanodeInfoWithStorage" in line:
-            hdfs_block_lines.append(line)
+                # Calculate per ip size and get the corresponding load
+                if ip in hdfs_stats.keys():
+                    hdfs_stats[ip] += block_size
+                else:
+                    hdfs_stats[ip] = block_size
 
-    # print(hdfs_block_lines)
-
-    # Regex to get the length and replication factor of a HDFS block
-    regex_len_rep = r'.* len=(\d*) Live_repl=(\d*).*'
-
-    for hdfs_block_line in hdfs_block_lines:
-        match_object_len_rep = re.match(regex_len_rep, hdfs_block_line)
-        print(match_object_len_rep)
-        block_size = int(match_object_len_rep.group(1))
-        replication_factor = int(match_object_len_rep.group(2))
-        # Regex to get all the ips on which a HDFS block is present
-        regex_ips = r'.*' + '.*DatanodeInfoWithStorage\[([\w.]*)' * replication_factor
-        match_object_ips = re.match(regex_ips, hdfs_block_line)
-        for i in range(0, replication_factor):
-            ip = match_object_ips.group(i + 1)
-            update_size_by_ip_dict(ip, block_size)
-
-    total_size = 0
-    # Calculate the total size
-    for ip, size in size_by_ip_dict.items():
-        total_size += size
-
-    result_printer(total_size)
+    result_printer()
 
 
 if __name__ == "__main__":
