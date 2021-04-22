@@ -47,9 +47,9 @@ def main(argv):
             replication_factor = int(match_object_len_rep.group(2))
             # Regex to get all the ips on which a HDFS block is present
             regex_ips = r'.*' + '.*DatanodeInfoWithStorage\[([\w.]*)' * replication_factor
-            print(regex_ips)
+            #print(regex_ips)
             match_object_ips = re.match(regex_ips, line)
-            print(match_object_ips)
+            #print(match_object_ips)
             for i in range(0, replication_factor):
                 ip = match_object_ips.group(i + 1)
 
